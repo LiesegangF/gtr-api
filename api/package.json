@@ -1,0 +1,7 @@
+{
+  "name": "gtr-api",
+  "private": true,
+  "dependencies": {
+    "firebase-admin": "^13.6.1"
+  }
+}
