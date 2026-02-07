@@ -15,7 +15,7 @@ export default async function handler(req, res) {
   const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
 
   if (!code) {
-    return res.redirect(`${frontendUrl}/?error=no_code`);
+    return res.redirect(`${frontendUrl}/auth?error=no_code`);
   }
 
   try {
@@ -36,7 +36,7 @@ export default async function handler(req, res) {
 
     if (!tokenRes.ok) {
       console.error("Twitch token error:", tokenData);
-      return res.redirect(`${frontendUrl}/?error=token_failed`);
+      return res.redirect(`${frontendUrl}/auth?error=token_failed`);
     }
 
     // 2. Twitch User-Info holen
@@ -51,7 +51,7 @@ export default async function handler(req, res) {
     const twitchUser = userData.data?.[0];
 
     if (!twitchUser) {
-      return res.redirect(`${frontendUrl}/?error=no_user`);
+      return res.redirect(`${frontendUrl}/auth?error=no_user`);
     }
 
     // 3. Firebase Admin initialisieren
@@ -97,9 +97,9 @@ export default async function handler(req, res) {
     const customToken = await fb.auth().createCustomToken(uid);
 
     // 6. Redirect zum Frontend mit Token
-    res.redirect(`${frontendUrl}/?token=${encodeURIComponent(customToken)}`);
+    res.redirect(`${frontendUrl}/auth?token=${encodeURIComponent(customToken)}`);
   } catch (err) {
     console.error("Twitch callback error:", err);
-    res.redirect(`${frontendUrl}/?error=server_error`);
+    res.redirect(`${frontendUrl}/auth?error=server_error`);
   }
 }
