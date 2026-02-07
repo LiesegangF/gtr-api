@@ -96,6 +96,15 @@ function parseTeams(html) {
 }
 
 export default async function handler(req, res) {
+  // CORS Headers
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-scrape-secret");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   // Einfacher Auth-Check: nur mit Secret aufrufbar
   const secret = req.headers["x-scrape-secret"] || req.query.secret;
   if (secret !== process.env.SCRAPE_SECRET) {
