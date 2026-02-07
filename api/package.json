@@ -2,6 +2,7 @@
   "name": "gtr-api",
   "private": true,
   "dependencies": {
+    "cheerio": "^1.0.0",
     "firebase-admin": "^13.6.1"
   }
 }
