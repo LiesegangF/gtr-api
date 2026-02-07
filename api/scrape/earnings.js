@@ -12,7 +12,6 @@ function getFirebaseAdmin() {
 }
 
 const USER_AGENT = "GTR-HigherLower/1.0 (guess-the-rank project; contact via Discord @feliiiiix)";
-
 const LIQUIPEDIA_API = "https://liquipedia.net/valorant/api.php";
 
 async function fetchPage(pageName) {
@@ -43,26 +42,18 @@ function parsePlayers(html) {
   const players = [];
 
   $("table.wikitable tr").each((i, row) => {
-    if (i === 0) return; // Header überspringen
-
+    if (i === 0) return;
     const cells = $(row).find("td");
     if (cells.length < 7) return;
 
     const name = $(cells[1]).find(".name a").first().text().trim();
     const earningsText = $(cells[cells.length - 1]).text().trim();
     const earnings = parseInt(earningsText.replace(/[$,]/g, ""), 10);
-
-    // Land aus Flag-Image alt-Text
     const countryImg = $(cells[1]).find(".flag img").first();
     const country = countryImg.attr("alt") || "";
 
     if (name && !isNaN(earnings) && earnings > 0) {
-      players.push({
-        name,
-        earnings,
-        country,
-        type: "player",
-      });
+      players.push({ name, earnings, country, type: "player" });
     }
   });
 
@@ -75,7 +66,6 @@ function parseTeams(html) {
 
   $("table.wikitable tr").each((i, row) => {
     if (i === 0) return;
-
     const cells = $(row).find("td");
     if (cells.length < 7) return;
 
@@ -84,11 +74,7 @@ function parseTeams(html) {
     const earnings = parseInt(earningsText.replace(/[$,]/g, ""), 10);
 
     if (name && !isNaN(earnings) && earnings > 0) {
-      teams.push({
-        name,
-        earnings,
-        type: "team",
-      });
+      teams.push({ name, earnings, type: "team" });
     }
   });
 
@@ -96,7 +82,6 @@ function parseTeams(html) {
 }
 
 export default async function handler(req, res) {
-  // CORS Headers
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-scrape-secret");
@@ -105,52 +90,45 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Einfacher Auth-Check: nur mit Secret aufrufbar
   const secret = req.headers["x-scrape-secret"] || req.query.secret;
   if (secret !== process.env.SCRAPE_SECRET) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
+  // type=players oder type=teams (ein Request pro Aufruf wegen 10s Timeout)
+  const type = req.query.type || "players";
+
   try {
-    // 1. Spieler-Daten holen
-    console.log("Fetching player earnings...");
-    const playersHtml = await fetchPage("Portal:Statistics/Player_earnings");
-    const players = parsePlayers(playersHtml);
-    console.log(`Parsed ${players.length} players`);
-
-    // Rate Limit: 30s zwischen Parse-Requests
-    await new Promise((r) => setTimeout(r, 31000));
-
-    // 2. Team-Daten holen
-    console.log("Fetching team earnings...");
-    const teamsHtml = await fetchPage("Portal:Statistics/Organization_Winnings");
-    const teams = parseTeams(teamsHtml);
-    console.log(`Parsed ${teams.length} teams`);
-
-    // 3. In Firestore speichern
     const fb = getFirebaseAdmin();
-    const db = fb.firestore();
+    const dbRef = fb.firestore();
 
-    // Spieler speichern (als ein Dokument mit Array - effizienter)
-    await db.doc("earnings/players").set({
-      data: players,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      count: players.length,
-    });
+    if (type === "players") {
+      const html = await fetchPage("Portal:Statistics/Player_earnings");
+      const players = parsePlayers(html);
 
-    // Teams speichern
-    await db.doc("earnings/teams").set({
-      data: teams,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      count: teams.length,
-    });
+      await dbRef.doc("earnings/players").set({
+        data: players,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        count: players.length,
+      });
 
-    res.json({
-      success: true,
-      players: players.length,
-      teams: teams.length,
-      message: `${players.length} Spieler und ${teams.length} Teams aktualisiert`,
-    });
+      return res.json({ success: true, count: players.length, message: `${players.length} Spieler aktualisiert` });
+    }
+
+    if (type === "teams") {
+      const html = await fetchPage("Portal:Statistics/Organization_Winnings");
+      const teams = parseTeams(html);
+
+      await dbRef.doc("earnings/teams").set({
+        data: teams,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        count: teams.length,
+      });
+
+      return res.json({ success: true, count: teams.length, message: `${teams.length} Teams aktualisiert` });
+    }
+
+    return res.status(400).json({ error: "type muss 'players' oder 'teams' sein" });
   } catch (err) {
     console.error("Scrape error:", err);
     res.status(500).json({ error: err.message });
