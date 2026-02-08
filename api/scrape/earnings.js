@@ -91,25 +91,45 @@ function parseTeams(html) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const allowedOrigin = process.env.FRONTEND_URL || "";
+  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-scrape-secret");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
 
-  const secret = req.headers["x-scrape-secret"] || req.query.secret;
-  if (secret !== process.env.SCRAPE_SECRET) {
-    return res.status(401).json({ error: "Unauthorized" });
+  // Auth: Firebase ID Token prüfen + Admin-Check
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Nicht autorisiert" });
+  }
+
+  const idToken = authHeader.split("Bearer ")[1];
+
+  let uid;
+  try {
+    const fb = getFirebaseAdmin();
+    const decoded = await fb.auth().verifyIdToken(idToken);
+    uid = decoded.uid;
+  } catch {
+    return res.status(401).json({ error: "Nicht autorisiert" });
+  }
+
+  // Admin-Prüfung in Firestore
+  const fb = getFirebaseAdmin();
+  const dbRef = fb.firestore();
+
+  const userDoc = await dbRef.doc(`users/${uid}`).get();
+  if (!userDoc.exists || !userDoc.data().isAdmin) {
+    return res.status(403).json({ error: "Keine Admin-Berechtigung" });
   }
 
   // type=players oder type=teams (ein Request pro Aufruf wegen 10s Timeout)
   const type = req.query.type || "players";
 
   try {
-    const fb = getFirebaseAdmin();
-    const dbRef = fb.firestore();
 
     if (type === "players") {
       const html = await fetchPage("Portal:Statistics/Player_earnings");
@@ -140,6 +160,6 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "type muss 'players' oder 'teams' sein" });
   } catch (err) {
     console.error("Scrape error:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Interner Serverfehler beim Scraping" });
   }
 }
