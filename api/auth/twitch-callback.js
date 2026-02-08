@@ -10,9 +10,23 @@ function getFirebaseAdmin() {
   return admin;
 }
 
+// Erlaubte Frontend-URLs für OAuth-Redirect
+const ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+];
+
 export default async function handler(req, res) {
-  const { code } = req.query;
-  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  const { code, state } = req.query;
+  const defaultFrontend = process.env.FRONTEND_URL || "http://localhost:5173";
+
+  if (defaultFrontend) {
+    ALLOWED_ORIGINS.push(defaultFrontend);
+  }
+
+  // state enthält die Origin-URL - nur erlaubte Origins akzeptieren
+  const requestedOrigin = state || "";
+  const frontendUrl = ALLOWED_ORIGINS.includes(requestedOrigin) ? requestedOrigin : defaultFrontend;
 
   if (!code) {
     return res.redirect(`${frontendUrl}/auth?error=no_code`);
