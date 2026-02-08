@@ -69,7 +69,16 @@ function parseTeams(html) {
     const cells = $(row).find("td");
     if (cells.length < 7) return;
 
-    const name = $(cells[1]).find("a").first().text().trim();
+    // Team-Zelle hat Logo-Link (nur img, kein Text) und dann den Teamnamen-Link
+    // Finde den ersten <a> mit tatsächlichem Text
+    let name = "";
+    $(cells[1]).find("a").each((_, a) => {
+      const text = $(a).text().trim();
+      if (text && !name) {
+        name = text;
+      }
+    });
+
     const earningsText = $(cells[cells.length - 1]).text().trim();
     const earnings = parseInt(earningsText.replace(/[$,]/g, ""), 10);
 
