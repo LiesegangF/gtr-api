@@ -1,15 +1,6 @@
 import admin from "firebase-admin";
 import * as cheerio from "cheerio";
-
-function getFirebaseAdmin() {
-  if (!admin.apps.length) {
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
-  }
-  return admin;
-}
+import { requireAdmin, setCorsHeaders, checkRateLimit, getFirebaseAdmin } from "../middleware/auth.js";
 
 const USER_AGENT = "GTR-HigherLower/1.0 (guess-the-rank project; contact via Discord @feliiiiix)";
 const LIQUIPEDIA_API = "https://liquipedia.net/valorant/api.php";
@@ -91,47 +82,34 @@ function parseTeams(html) {
 }
 
 export default async function handler(req, res) {
-  const allowedOrigin = process.env.FRONTEND_URL || "";
-  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  // CORS Headers setzen
+  setCorsHeaders(res);
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
 
-  // Auth: Firebase ID Token prüfen + Admin-Check
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Nicht autorisiert" });
-  }
+  // Admin-Authentifizierung (kombiniert Token-Check + Admin-Status)
+  const user = await requireAdmin(req, res);
+  if (!user) return; // Response wurde bereits gesendet
 
-  const idToken = authHeader.split("Bearer ")[1];
-
-  let uid;
-  try {
-    const fb = getFirebaseAdmin();
-    const decoded = await fb.auth().verifyIdToken(idToken);
-    uid = decoded.uid;
-  } catch {
-    return res.status(401).json({ error: "Nicht autorisiert" });
-  }
-
-  // Admin-Prüfung in Firestore
-  const fb = getFirebaseAdmin();
-  const dbRef = fb.firestore();
-
-  const userDoc = await dbRef.doc(`users/${uid}`).get();
-  if (!userDoc.exists || !userDoc.data().isAdmin) {
-    return res.status(403).json({ error: "Keine Admin-Berechtigung" });
+  // Rate Limiting: Max 5 Requests pro Minute pro Admin
+  if (!checkRateLimit(user.uid, 5, 60000)) {
+    return res.status(429).json({
+      success: false,
+      error: "Rate limit erreicht. Bitte warten Sie eine Minute."
+    });
   }
 
   // type=players oder type=teams (ein Request pro Aufruf wegen 10s Timeout)
   const type = req.query.type || "players";
 
   try {
+    const fb = getFirebaseAdmin();
+    const dbRef = fb.firestore();
 
     if (type === "players") {
+      console.log("[Earnings] Fetching player data from Liquipedia...");
       const html = await fetchPage("Portal:Statistics/Player_earnings");
       const players = parsePlayers(html);
 
@@ -141,10 +119,16 @@ export default async function handler(req, res) {
         count: players.length,
       });
 
-      return res.json({ success: true, count: players.length, message: `${players.length} Spieler aktualisiert` });
+      console.log(`[Earnings] Successfully updated ${players.length} players`);
+      return res.json({
+        success: true,
+        count: players.length,
+        message: `${players.length} Spieler aktualisiert`
+      });
     }
 
     if (type === "teams") {
+      console.log("[Earnings] Fetching team data from Liquipedia...");
       const html = await fetchPage("Portal:Statistics/Organization_Winnings");
       const teams = parseTeams(html);
 
@@ -154,12 +138,31 @@ export default async function handler(req, res) {
         count: teams.length,
       });
 
-      return res.json({ success: true, count: teams.length, message: `${teams.length} Teams aktualisiert` });
+      console.log(`[Earnings] Successfully updated ${teams.length} teams`);
+      return res.json({
+        success: true,
+        count: teams.length,
+        message: `${teams.length} Teams aktualisiert`
+      });
     }
 
-    return res.status(400).json({ error: "type muss 'players' oder 'teams' sein" });
+    return res.status(400).json({
+      success: false,
+      error: "type muss 'players' oder 'teams' sein"
+    });
+
   } catch (err) {
-    console.error("Scrape error:", err);
-    res.status(500).json({ error: "Interner Serverfehler beim Scraping" });
+    console.error("[Earnings] Scrape error:", err);
+
+    // Generische Error-Message für Production
+    const isDev = process.env.NODE_ENV === "development";
+    const errorMessage = isDev
+      ? `Scraping fehlgeschlagen: ${err.message}`
+      : "Interner Serverfehler beim Scraping";
+
+    return res.status(500).json({
+      success: false,
+      error: errorMessage
+    });
   }
 }
