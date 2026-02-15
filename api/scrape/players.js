@@ -64,13 +64,30 @@ function parseRoster(html, teamName, region) {
   const $ = cheerio.load(html);
   const players = [];
 
-  // Find active roster table - look for roster-card tables
-  $("table.roster-card, table.wikitable").each((_, table) => {
+  const STAFF_KEYWORDS = [
+    "coach", "head coach", "manager", "analyst", "assistant",
+    "strategic", "general manager", "ceo", "owner", "content creator",
+  ];
+  const seenSlugs = new Set();
+
+  // Find roster tables — prefer roster-card, fall back to first wikitable
+  const rosterTables = $("table.roster-card");
+  const tables = rosterTables.length > 0 ? rosterTables : $("table.wikitable").first();
+
+  tables.each((_, table) => {
     $(table).find("tr").each((_, row) => {
       const $row = $(row);
+      const rowText = $row.text().toLowerCase();
+
+      // Skip staff/coach rows
+      if (STAFF_KEYWORDS.some((kw) => rowText.includes(kw))) return;
+
+      // Skip rows explicitly marked as staff
+      if ($row.hasClass("Coach") || $row.hasClass("Staff")) return;
+      if ($row.find("td.Position").text().toLowerCase().match(/coach|manager|analyst/)) return;
 
       // Look for player rows - they contain player links
-      const playerLink = $row.find("td .inline-player a, td.ID a, td a[href*='/valorant/']").first();
+      const playerLink = $row.find("td .inline-player a, td.ID a").first();
       if (!playerLink.length) return;
 
       // Get player name from the link text
@@ -79,11 +96,16 @@ function parseRoster(html, teamName, region) {
 
       // Get player slug from href
       const href = playerLink.attr("href") || "";
-      const slug = href.replace("/valorant/", "");
+      const slug = decodeURIComponent(href.replace("/valorant/", ""));
       if (!slug) return;
 
-      // Skip non-player links (like team links, etc)
-      if (slug.includes(":") || slug.includes("Category")) return;
+      // Skip non-player links (like team links, category pages, etc)
+      if (slug.includes(":") || slug.includes("Category") || slug.includes("/")) return;
+
+      // Strict dedup by normalized slug
+      const normalizedSlug = slug.toLowerCase();
+      if (seenSlugs.has(normalizedSlug)) return;
+      seenSlugs.add(normalizedSlug);
 
       // Get country from flag image
       const flagImg = $row.find("span.flag img, .flag img").first();
@@ -91,9 +113,6 @@ function parseRoster(html, teamName, region) {
 
       // Check for IGL/Captain (crown icon)
       const isIGL = $row.find("i.fa-crown, .fa-crown").length > 0;
-
-      // Avoid duplicates
-      if (players.some((p) => p.slug === slug)) return;
 
       players.push({
         slug,
@@ -117,11 +136,20 @@ function parsePlayerDetails(html) {
   const details = { role: "", transferHistory: [] };
 
   // Parse role from infobox
+  const STAFF_ROLES = ["coach", "head coach", "manager", "analyst", "assistant coach", "strategic coach"];
   $("div.fo-nttax-infobox > div").each((_, div) => {
     const label = $(div).find("div.infobox-description").text().trim();
     if (label === "Role:") {
       const value = $(div).find("div.infobox-description").next("div").text().trim();
-      if (value) details.role = value;
+      if (value) {
+        // Mark staff roles so they can be filtered client-side
+        if (STAFF_ROLES.includes(value.toLowerCase())) {
+          details.role = value;
+          details.isStaff = true;
+        } else {
+          details.role = value;
+        }
+      }
     }
   });
 
@@ -177,6 +205,7 @@ function parsePlayerDetails(html) {
 
 async function scrapeRosters() {
   const allPlayers = [];
+  const globalSlugs = new Set();
   const errors = [];
 
   for (const [region, teams] of Object.entries(VCT_TEAMS)) {
@@ -186,7 +215,16 @@ async function scrapeRosters() {
         const html = await fetchPage(teamSlug);
         const decodedTeamName = decodeURIComponent(teamSlug);
         const players = parseRoster(html, decodedTeamName, region);
-        allPlayers.push(...players);
+
+        // Global dedup across all teams
+        for (const player of players) {
+          const key = player.slug.toLowerCase();
+          if (!globalSlugs.has(key)) {
+            globalSlugs.add(key);
+            allPlayers.push(player);
+          }
+        }
+
         console.log(`[Players] Found ${players.length} players for ${decodedTeamName}`);
       } catch (err) {
         console.error(`[Players] Error scraping ${teamSlug}: ${err.message}`);
