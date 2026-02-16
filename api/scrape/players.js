@@ -11,22 +11,25 @@ const VCT_TEAMS = {
     "Sentinels", "Cloud9", "100_Thieves", "NRG_Esports",
     "Evil_Geniuses", "LOUD", "FURIA_Esports", "MIBR",
     "Leviat%C3%A1n", "KR%C3%9C_Esports",
+    "G2_Esports", "ENVY",
   ],
   EMEA: [
     "Fnatic", "Team_Liquid", "Team_Heretics", "Karmine_Corp",
     "Team_Vitality", "Natus_Vincere", "BBL_Esports",
-    "Gentle_Mates", "FUT_Esports", "Giants_Gaming",
+    "Gentle_Mates", "FUT_Esports", "GIANTX",
+    "PCIFIC_Esports", "ULF_Esports",
   ],
   Pacific: [
     "DRX", "T1", "Gen.G", "Paper_Rex",
-    "Team_Secret", "Talon_Esports", "Global_Esports",
-    "Rex_Regum_Qeon", "DetonatioN_FocusMe", "ZETA_DIVISION",
+    "Team_Secret", "Global_Esports", "Rex_Regum_Qeon",
+    "DetonatioN_FocusMe", "ZETA_DIVISION",
+    "Nongshim_RedForce", "VARREL", "FULL_SENSE",
   ],
   China: [
     "EDward_Gaming", "Bilibili_Gaming", "FunPlus_Phoenix",
     "JDG_Gaming", "Nova_Esports", "All_Gamers",
     "Trace_Esports", "TYLOO", "Wolves_Esports",
-    "Dragon_Ranger_Gaming",
+    "Dragon_Ranger_Gaming", "XLG_Esports", "Titan_Esports_Club",
   ],
 };
 
@@ -70,8 +73,8 @@ function parseRoster(html, teamName, region) {
   ];
   const seenSlugs = new Set();
 
-  // Find roster tables — prefer roster-card, fall back to first wikitable
-  const rosterTables = $("table.roster-card");
+  // Only the first roster-card = active roster (skip Inactive, Former, etc.)
+  const rosterTables = $("table.roster-card").first();
   const tables = rosterTables.length > 0 ? rosterTables : $("table.wikitable").first();
 
   tables.each((_, table) => {
